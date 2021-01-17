@@ -1,54 +1,37 @@
-import os
-
 from PyQt5.QtCore import Qt, pyqtSignal, QMimeData, QPropertyAnimation, pyqtProperty
 from PyQt5.QtGui import QKeyEvent, QColor
-from PyQt5.QtWidgets import QTextEdit, QComboBox, QLabel, QApplication
+from PyQt5.QtWidgets import QTextEdit, QComboBox, QLabel, QApplication, QPushButton, QColorDialog, QMessageBox
+
+arrowKeys = [Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right]
+
 
 # ====================================
 #  Text editor Widget
-# This widget
 # ====================================
 class TextEdit(QTextEdit):
     charCountChange = pyqtSignal(int)
     charCountExceeded = pyqtSignal()
 
-    def __init__(self, arg):
+    def __init__(self, arg = None):
         super(TextEdit, self).__init__(arg)
-        self.charCount = 0
-        self.charLimit = 140
+        self.char_count = 0
+        self.char_limit = 140
         self.updateCharCount()
+        self.setPlaceholderText("Edit me!")
+        self.setFontPointSize(12)
         self.textChanged.connect(self.updateCharCount)
 
-    def setFontPointSize(self, size: float):
-        font = self.font()
-        font.setPointSize(size)
-        self.setFont(font)
-
-    # def setFontWeight(self, p_int):
-    #     # current_cursor = self.textCursor()
-    #     # self.selectAll()
-    #     super(TextEdit, self).setFontWeight(p_int)
-    #     # self.setTextCursor(current_cursor)
-    #
-    # def setFontItalic(self, bool):
-    #     # current_cursor = self.textCursor()
-    #     # self.selectAll()
-    #     super(TextEdit, self).setFontItalic(bool)
-    #     # self.setTextCursor(current_cursor)
-    #
-    # def setFontUnderline(self, bool):
-    #     # current_cursor = self.textCursor()
-    #     # self.selectAll()
-    #     super(TextEdit, self).setFontUnderline(bool)
-    #     # self.setTextCursor(current_cursor)
 
     def updateCharCount(self):
-        self.charCount = len(self.toPlainText())
-        self.charCountChange.emit(self.charCount)
+        self.char_count = len(self.toPlainText())
+        self.charCountChange.emit(self.char_count)
 
     def keyPressEvent(self, event: QKeyEvent):
+        if event.key() in arrowKeys:
+            self.selectionChanged.emit()
+
         # if we're safe to add chars or the key press is not a symbol or is a backspace
-        if self.charCount < self.charLimit or len(event.text()) != 1 or event.key() == Qt.Key_Backspace:
+        if self.char_count < self.char_limit or len(event.text()) != 1 or event.key() == Qt.Key_Backspace:
             # Continue as normal
             super(TextEdit, self).keyPressEvent(event)
         else:
@@ -56,29 +39,30 @@ class TextEdit(QTextEdit):
             self.charCountExceeded.emit()
             return
 
-    # Only working override for dragging in/pasting text
+    # The only working override for dragging in/pasting text
     def insertFromMimeData(self, source: QMimeData):
         # If the thing we're adding will exceed the charCount, throw error and escape
-        if len(QApplication.clipboard().text()) + self.charCount > self.charLimit:
+        if len(QApplication.clipboard().text()) + self.char_count > self.char_limit:
             self.charCountExceeded.emit()
             return
         else:
             super(TextEdit, self).insertFromMimeData(source)
 
 
+# ====================================
+#  Font Size Combo Box Widget
+# ====================================
 class FontSizeBox(QComboBox):
     valueChange = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()
 
-        self.configure_font_size_box()
+        self.configureFontSizeBox()
         self.last_good = self.currentText()
-        # self.font_size = int(self.currentText())
         self.activated.connect(self.clearFocus)
-        # self.focusOutEvent.connect(self.sanitize_input)
 
-    def configure_font_size_box(self):
+    def configureFontSizeBox(self):
         list_of_font_sizes = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72, 96]
         for size in list_of_font_sizes:
             self.addItem(str(size))
@@ -88,7 +72,7 @@ class FontSizeBox(QComboBox):
 
     def focusOutEvent(self, focus_event):
         super().focusOutEvent(focus_event)
-        self.sanitize_input()
+        self.sanitizeInput()
         self.valueChange.emit(int(self.currentText()))
 
     def keyPressEvent(self, event):
@@ -96,7 +80,7 @@ class FontSizeBox(QComboBox):
             self.clearFocus()
         super(FontSizeBox, self).keyPressEvent(event)
 
-    def sanitize_input(self):
+    def sanitizeInput(self):
         # Remove all whitespace. This will change inputs like "3 3" to "33",
         # but this is the the behavior of the Adobe suite inputs and is an acceptable outcome
         self.setCurrentText(self.currentText().replace(" ", ""))
@@ -112,6 +96,9 @@ class FontSizeBox(QComboBox):
             self.setCurrentText(self.last_good)
 
 
+# ====================================
+#  Number of Characters Display Widget
+# ====================================
 class CharCountDisplay(QLabel):
 
     def __init__(self, args):
@@ -130,7 +117,6 @@ class CharCountDisplay(QLabel):
         self.animation.setEndValue(self.color)
         self.animation.setKeyValueAt(0.5, QColor(255, 0, 0))
 
-
     def updateCharCount(self, charCount):
         self.charCount = charCount
         self.setText(str(charCount) + "/140")
@@ -147,3 +133,58 @@ class CharCountDisplay(QLabel):
         self.setPalette(palette)
 
     color = pyqtProperty(QColor, getColor, setColor)
+
+
+# ====================================
+#  Color picker widget from https://www.mfitzp.com/article/qcolorbutton-a-color-selector-tool-for-pyqt/
+# ====================================
+class QColorButton(QPushButton):
+    ''' Custom Qt Widget to show a chosen color. Left-clicking the button shows the color-chooser, while right-clicking resets the color to None (no-color). '''
+
+    colorChanged = pyqtSignal(QColor)
+
+    def __init__(self, *args, **kwargs):
+        super(QColorButton, self).__init__(*args, **kwargs)
+
+        self._color = None
+        self.setMaximumWidth(32)
+        self.pressed.connect(self.onColorPicker)
+
+    def setColor(self, color):
+        if color != self._color:
+            self._color = color
+            self.colorChanged.emit(QColor(self._color))
+
+        if self._color:
+            self.setStyleSheet("background-color: %s;" % self._color)
+        else:
+            self.setStyleSheet("")
+
+    def color(self):
+        return self._color
+
+    def onColorPicker(self):
+        ''' Show color-picker dialog to select color. Qt will use the native dialog by default. '''
+        dlg = QColorDialog(self)
+        if self._color:
+            dlg.setCurrentColor(QColor(self._color))
+
+        if dlg.exec_():
+            self.setColor(dlg.currentColor().name())
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.RightButton:
+            self.setColor(None)
+
+        return super(QColorButton, self).mousePressEvent(e)
+
+
+class UnsavedChangesDialog(QMessageBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.setWindowTitle("Unsaved changes")
+        self.setText("You have unsaved changes in this file. Would you like to save now?")
+        self.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        self.setIcon(QMessageBox.Question)
+
